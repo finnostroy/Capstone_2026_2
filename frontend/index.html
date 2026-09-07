@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>맛집 원픽 — 오늘 점심 10초 결정</title>
+<!--
+  맛집 원픽 — 프론트엔드 (frontend/index.html)
+  ==============================================
+  역할: 사용자 입력(기분·날씨·예산)을 받아 백엔드 API를 호출하고
+        결과를 화면에 그린다. 백엔드 주소나 로직은 몰라도 되고,
+        API 명세(backend/app.py 상단 주석)만 알면 된다.
+
+  실행: python backend/app.py 실행 후 http://localhost:8000 접속
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: #f4f6f8; color: #1f2937;
+    display: flex; justify-content: center; padding: 40px 16px;
+  }
+  .app { width: 100%; max-width: 460px; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: #6b7280; font-size: 14px; margin-bottom: 24px; }
+  .card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; font-weight: 700; margin: 12px 0 6px; }
+  select, input[type="number"] {
+    width: 100%; padding: 10px; font-size: 15px;
+    border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
+  }
+  button {
+    width: 100%; margin-top: 18px; padding: 13px; font-size: 16px; font-weight: 700;
+    color: #fff; background: #1f4e79; border: none; border-radius: 8px; cursor: pointer;
+  }
+  button:hover { background: #16365c; }
+  button:disabled { background: #9ca3af; cursor: wait; }
+  #result { display: none; }
+  #result.show { display: block; }
+  .pick-name { font-size: 22px; font-weight: 800; margin-bottom: 2px; }
+  .pick-meta { color: #6b7280; font-size: 14px; margin-bottom: 12px; }
+  .score { display: inline-block; background: #deeaf6; color: #1f4e79;
+           font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 999px; }
+  ul.reasons { margin: 12px 0 0 18px; font-size: 14px; line-height: 1.7; }
+  .error { color: #c00000; font-weight: 700; font-size: 14px; }
+  .hint { color: #9ca3af; font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🍜 맛집 원픽</h1>
+  <p class="sub">기분·날씨·예산을 고르면, 백엔드가 오늘의 한 곳만 골라줍니다.</p>
+
+  <div class="card">
+    <label for="mood">오늘 기분</label>
+    <select id="mood"></select>
+
+    <label for="weather">오늘 날씨</label>
+    <select id="weather"></select>
+
+    <label for="budget">점심 예산 (원)</label>
+    <input type="number" id="budget" value="10000" min="1000" step="500" />
+
+    <button id="go">오늘의 원픽 받기</button>
+    <p class="hint">버튼을 누르면 GET /api/recommend 를 호출합니다.</p>
+  </div>
+
+  <div class="card" id="result">
+    <div class="pick-name" id="r-name"></div>
+    <div class="pick-meta" id="r-meta"></div>
+    <span class="score" id="r-score"></span>
+    <ul class="reasons" id="r-reasons"></ul>
+  </div>
+
+  <div class="card" id="errorBox" style="display:none">
+    <p class="error" id="r-error"></p>
+  </div>
+</div>
+
+<script>
+  // 선택지는 백엔드 Enum과 일치해야 한다 (API 명세의 일부)
+  const MOODS = ["스트레스", "피곤함", "상쾌함", "우울함", "보통"];
+  const WEATHERS = ["맑음", "비", "추움", "더움"];
+
+  function fillSelect(id, items) {
+    const sel = document.getElementById(id);
+    items.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      sel.appendChild(opt);
+    });
+  }
+  fillSelect("mood", MOODS);
+  fillSelect("weather", WEATHERS);
+
+  const btn = document.getElementById("go");
+
+  btn.addEventListener("click", async () => {
+    const mood = document.getElementById("mood").value;
+    const weather = document.getElementById("weather").value;
+    const budget = document.getElementById("budget").value;
+
+    const params = new URLSearchParams({ mood, weather, budget });
+    btn.disabled = true; btn.textContent = "고르는 중...";
+    document.getElementById("result").classList.remove("show");
+    document.getElementById("errorBox").style.display = "none";
+
+    try {
+      // 프론트가 아는 것은 이 URL과 응답 JSON의 모양뿐이다
+      const res = await fetch(`/api/recommend?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+
+      document.getElementById("r-name").textContent = `${data.name} — ${data.menu}`;
+      document.getElementById("r-meta").textContent =
+        `${data.price.toLocaleString()}원 · 도보 ${data.walk_minutes}분 · ★${data.rating}`;
+      document.getElementById("r-score").textContent = `적합도 ${data.score}점`;
+
+      const ul = document.getElementById("r-reasons");
+      ul.innerHTML = "";
+      (data.reasons || []).forEach(t => {
+        const li = document.createElement("li");
+        li.textContent = t;
+        ul.appendChild(li);
+      });
+      document.getElementById("result").classList.add("show");
+    } catch (err) {
+      document.getElementById("r-error").textContent = err.message;
+      document.getElementById("errorBox").style.display = "block";
+    } finally {
+      btn.disabled = false; btn.textContent = "오늘의 원픽 받기";
+    }
+  });
+</script>
+</body>
+</html>
